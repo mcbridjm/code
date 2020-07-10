@@ -1,0 +1,66 @@
+// Lets add some debug flags
+def boolean DEBUG=0;
+// Start main block
+pipeline {
+agent none
+	stages {
+		stage('Turn on IHS Maintenance Page') {
+			steps {
+				node ('PPD AppServer and Dmgr') {
+					sh (script: 'sudo /u02/scripts/maintmode-jenkins.sh start')
+				}
+			}
+		}
+		stage('Shutdown Application Servers') {
+			parallel{  
+				stage('Shutdown Node 1 JVMs') {
+					steps {
+					   //Multi-thread
+						node ('PPD AppServer and Dmgr') {
+							sh (script: '/u02/scripts/soardwas stop || true')
+						}
+					}
+				}
+				stage('Shutdown Node 2 JVMs'){
+					steps{
+						node ('PPD AppServer - PPD41') {
+							sh (script: '/u02/scripts/soardwas stop || true')
+						}
+					}	
+				}
+			}
+		}
+		stage('Import PROD2PPD') {
+			steps {
+				node ('PPD Database Server') {
+					sh (script: 'cd /home/oraclient/SOARD_Scripts/ ; ./import_server-jenkins.sh MAXPPD MAXPRD-CURRENT.dmp ${CLEANSE} ${PRECLEANSE}')
+				}
+			}
+		}
+		stage('Startup Application Servers') {
+			parallel{
+				stage('Start Node 1 JVMs') {
+					steps{
+						node ('PPD AppServer and Dmgr') {
+							sh (script: 'export JENKINS_NODE_COOKIE=dontKillMe ; /u02/scripts/soardwas start || true')
+						}
+					}
+				}
+				stage('Start Node 2 JVMs') {
+					steps{
+						node ('PPD AppServer - PPD41') {
+							sh (script: 'export JENKINS_NODE_COOKIE=dontKillMe ; /u02/scripts/soardwas start || true')
+						}
+					}	
+				}
+			}
+		}
+		stage('Turn off IHS Maintenance Page') {
+			steps {
+				node ('PPD AppServer and Dmgr') {
+					sh (script: 'sudo /u02/scripts/maintmode-jenkins.sh stop')
+				}
+			}
+		}
+	}			  
+}
