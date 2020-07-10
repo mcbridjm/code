@@ -1,0 +1,130 @@
+pipeline {
+	agent none
+		stages {
+			/*stage('Turn on IHS Maintenance Page') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						sh (script: 'sudo /u02/scripts/maintmode-jenkins.sh start')
+					}
+				}
+			}
+			stage('Backup MAXPPD') {
+				steps {
+					node ('UTL400 - master') {
+						sh (script: 'cd /u02/IBM/SOARD/ ; cp -r MAXPPD/ MAXPPD.bak')
+					}
+				}
+			}
+			stage('Install MAXPPD') {
+				steps {
+					node ('UTL400 - master') {
+						sh (script: 'sudo /u02/IBM/InstallationManager/eclipse/tools/imcl -input /u02/IBM/SOARD/Response/MAXPPD_ResponseFile_MAM_Update_Unix.xml -log /u02/IBM/SOARD/log/MAXPPD_Update.log -acceptLicense')
+						sh (script: 'sudo chown -R ibmadmin.ibmadmin /u02/IBM/SOARD/MAXPPD')
+					}
+				}
+			}			
+			stage('Overlay MAXPPD') {
+				steps {
+					node ('UTL400 - master') {
+						sh (script: 'cd /u02/scripts/deploy/Directory_Overlays ; ./overlay.sh MAXPPD')
+					}
+				}
+			}	
+			stage('Update MAXPPD DB lite') {
+				steps {
+					node ('UTL400 - master') {			
+						sh (script: 'cd /u02/IBM/SOARD/MAXPPD/maximo/tools/maximo ; ./updatedblitepreprocessor.sh')
+					}
+				}
+			}
+			stage('Build MAXPPD') {
+				steps {
+					node ('UTL400 - master') {			
+						sh (script: 'cd /u02/IBM/SOARD/MAXPPD/maximo/deployment ; ./buildall.sh')
+					}
+				}
+			}
+			stage('Copy MAXPPD') {
+				steps {
+					node ('UTL400 - master') {			
+						sh (script: 'scp /u02/IBM/SOARD/MAXPPD/maximo/deployment/default/*.ear ibmadmin@vaausmaxappppd40.aac.va.gov:/u02/IBM/stage/MAXPPD/')
+					}
+				}
+			}*/
+			stage('Shutdown ALL websphere JVMs') {
+				parallel {
+					stage ('Shutdown App PPD40') {
+						steps {
+							node ('PPD AppServer and Dmgr') {
+						  		sh (script: '/u02/scripts/soardwas stop || true')
+							}
+						}
+					}
+					stage ('Shutdown App PPD41') {
+						steps {
+							node ('PPD AppServer - PPD41') {
+						  		sh (script: '/u02/scripts/soardwas stop || true')
+							}
+						}
+					}
+				}
+				sleep(time:1,unit:"MINUTES")				
+			}
+			stage('Update MAXPPD DB') {
+				steps {
+					node ('UTL400 - master') {			
+						sh (script: 'cd /u02/IBM/SOARD/MAXPPD/maximo/tools/maximo ; ./updatedb.sh')
+					}					
+				}
+			}
+			stage ('Startup Deployment Manager and Node Agent on App PPD40') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						  sh (script: 'cd /u02/scripts/ ; ./dmgrnode.sh start || true')
+					}
+				}
+			}			
+			stage('Undeploy MAXPPD') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						sh (script: 'cd /u02/scripts/deploy/MAXPPD ; /opt/IBM/WebSphere/AppServer/profiles/Dmgr01/bin/wsadmin.sh -lang jython  -f undeploy_v2.jy')
+					}
+				}
+			}
+			stage('Deploy MAXPPD') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						sh (script: 'cd /u02/scripts/deploy/MAXPPD ; /opt/IBM/WebSphere/AppServer/profiles/Dmgr01/bin/wsadmin.sh -lang jython  -f deploy.jy')
+					}
+					sleep(time:3,unit:"MINUTES")					
+				}
+			}	
+			stage('Startup ALL websphere JVMs') {
+				parallel {
+					stage ('Startup App PPD40') {
+						steps {
+							node ('PPD AppServer and Dmgr') {
+								sh (script: 'cd /u02/scripts/ ; ./dmgrnode.sh stop || true')
+						  		sh (script: 'export JENKINS_NODE_COOKIE=dontKillMe ; /u02/scripts/soardwas start || true')
+							}
+						}
+					}
+					stage ('Startup App PPD41') {
+						steps {
+							node ('PPD AppServer - PPD41') {
+						  		sh (script: 'export JENKINS_NODE_COOKIE=dontKillMe ; /u02/scripts/soardwas start || true')
+							}
+						}
+					}
+				}
+			}			
+			stage('Turn off IHS Maintenance Page') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						sh (script: 'sudo /u02/scripts/maintmode-jenkins.sh stop')
+					}
+				}
+			}
+		}
+	
+}
