@@ -1,0 +1,76 @@
+pipeline {
+    agent none
+		stages {
+			stage('Shut down all running JVMs') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						sh (script: '/u02/scripts/EAWM_Release_Admin.sh stop')
+					}
+				}    
+			}
+			stage('Confirm JVMs are all offline.') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						sh (script: 'ps -ef |grep java |grep ibmadmin |grep -v jenkins || true')
+					}
+					node ('PPD AppServer - PPD41') {
+						sh (script: 'ps -ef |grep java |grep ibmadmin |grep -v jenkins || true')					
+					}
+				input 'MAXPPD JVMs confirmed offline? Confirm system ready for JVM cache clear?'	
+				}
+			}
+			stage('Clear JVM Cache') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						sh (script: '/u02/scripts/clearcache-jenkins.sh YES')
+					}
+					node ('PPD AppServer - PPD41') {
+						sh (script: '/u02/scripts/clearcache-jenkins.sh YES')					
+					}
+				}
+			}	
+			stage('Start all cron tasks') {
+				steps {
+					withCredentials([string(credentialsId: 'MAXPPD1', variable: 'PASSWORD')]) {
+						node ('PPD AppServer and Dmgr') {
+							sh (script: '/u02/scripts/cronmaint.sh ENABLE "${PASSWORD}"')
+						}
+					}	
+				}
+			}
+			stage('Execute normal Maximo startup script (all App servers)') {
+				parallel {
+					stage ('Startup App PPD40') {
+						steps {
+							node ('PPD AppServer and Dmgr') {
+								sh (script: 'export JENKINS_NODE_COOKIE=dontKillMe ; /u02/scripts/soardwas start || true')
+							}
+						}
+					}
+					stage ('Startup App PPD41') {
+						steps {
+							node ('PPD AppServer - PPD41') {
+								sh (script: 'export JENKINS_NODE_COOKIE=dontKillMe ; /u02/scripts/soardwas start || true')
+							}
+						}	
+					}
+				}	
+			}
+			stage('Disable Maintenance Banner') {
+				steps {
+					node ('PPD AppServer and Dmgr') {
+						sh (script: 'sudo /u02/scripts/maintmode-jenkins.sh stop')
+					}
+				}    
+			}
+			stage('Run Integrity Checker') {
+				when { expression {"${INTEGCHECK}" == "Y"} }
+					steps {
+						node ('UTL400 - master') {
+							sh (script: 'export JENKINS_NODE_COOKIE=dontKillMe ; /u02/scripts/runintegPPD-jenkins.sh "${EMAIL}" &')
+						}
+					}		
+			}
+		}
+	
+}
